@@ -145,7 +145,7 @@ class TestLLMAnalysisAgent(unittest.TestCase):
         config = LLMAnalysisAgentConfig(
             max_sample_messages=2,
             max_message_chars=30,
-            max_prompt_chars=1000,
+            max_prompt_chars=2000,
         )
         agent = LLMAnalysisAgent(llm_provider=self.fake_provider, config=config)
 

@@ -104,6 +104,14 @@ class LLMResponse:
     model: str
     usage: dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Retorna una copia serializable de la respuesta del modelo."""
+        return {
+            "content": self.content,
+            "model": self.model,
+            "usage": dict(self.usage),
+        }
+
 
 @runtime_checkable
 class LLMProviderProtocol(Protocol):

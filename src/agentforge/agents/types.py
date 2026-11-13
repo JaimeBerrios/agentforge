@@ -64,6 +64,31 @@ class TriageResult:
         }
     )
 
+    def __post_init__(self) -> None:
+        """Valida rigurosamente tipos y rangos de las métricas de triaje."""
+        if isinstance(self.operational_error_count, bool) or not isinstance(
+            self.operational_error_count, int
+        ):
+            raise TypeError("operational_error_count debe ser un entero estrictamente.")
+        if self.operational_error_count < 0:
+            raise ValueError(
+                f"operational_error_count no puede ser negativo: {self.operational_error_count}."
+            )
+
+        if isinstance(self.format_anomaly_count, bool) or not isinstance(
+            self.format_anomaly_count, int
+        ):
+            raise TypeError("format_anomaly_count debe ser un entero estrictamente.")
+        if self.format_anomaly_count < 0:
+            raise ValueError(
+                f"format_anomaly_count no puede ser negativo: {self.format_anomaly_count}."
+            )
+
+        if not isinstance(self.reasons, tuple):
+            object.__setattr__(self, "reasons", tuple(self.reasons))
+        if not isinstance(self.recommendations, tuple):
+            object.__setattr__(self, "recommendations", tuple(self.recommendations))
+
     def to_dict(self) -> dict[str, Any]:
         """Convierte el resultado de triaje a un diccionario serializable."""
         return {
@@ -98,6 +123,16 @@ class LLMAnalysisResult:
             "nature": "unverified_ai_hypotheses",
         }
     )
+
+    def __post_init__(self) -> None:
+        """Garantiza la inmutabilidad profunda de colecciones contenidas."""
+        if not isinstance(self.hypotheses, tuple):
+            object.__setattr__(self, "hypotheses", tuple(self.hypotheses))
+        if not isinstance(self.recommendations, tuple):
+            object.__setattr__(self, "recommendations", tuple(self.recommendations))
+        if not isinstance(self.warnings, tuple):
+            object.__setattr__(self, "warnings", tuple(self.warnings))
+        object.__setattr__(self, "confirmed_facts", dict(self.confirmed_facts))
 
     def to_dict(self) -> dict[str, Any]:
         """Convierte el resultado del análisis LLM a un diccionario serializable."""

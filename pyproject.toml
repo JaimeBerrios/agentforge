@@ -33,6 +33,9 @@ llm = [
     "google-genai>=1.0.0",
 ]
 
+[project.scripts]
+agentforge = "agentforge.cli.main:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

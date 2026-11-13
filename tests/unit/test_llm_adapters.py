@@ -91,7 +91,11 @@ class TestOllamaProvider(unittest.TestCase):
     def test_inicializacion_no_realiza_conexiones(self) -> None:
         # La creación de OllamaProvider no debe invocar la red
         with patch("urllib.request.urlopen") as mock_url:
-            provider = OllamaProvider(OllamaConfig(host="http://10.255.255.1:11434"))
+            config = OllamaConfig(
+                host="http://10.255.255.1:11434",
+                allowed_hosts=("10.255.255.1",),
+            )
+            provider = OllamaProvider(config)
             self.assertEqual(provider.host, "http://10.255.255.1:11434")
             mock_url.assert_not_called()
 

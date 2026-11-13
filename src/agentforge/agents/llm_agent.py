@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +13,21 @@ from agentforge.agents.types import LLMAnalysisResult, TriagePriority, TriageRes
 from agentforge.core.contracts import AgentRunResult, LLMProviderProtocol, LLMResponse
 from agentforge.skills.types import IncidentReport
 
+# Claves autorizadas para hechos confirmados provenientes de telemetría determinista
+ALLOWED_CONFIRMED_FACT_KEYS = frozenset(
+    {
+        "total_events",
+        "valid_events",
+        "operational_errors",
+        "operational_warnings",
+        "anomalous_events",
+        "incomplete_records",
+        "malformed_records",
+        "anomalous_percentage",
+        "triage_reasons",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class LLMAnalysisAgentConfig:
@@ -20,6 +36,9 @@ class LLMAnalysisAgentConfig:
     max_sample_messages: int = 5
     max_message_chars: int = 200
     max_prompt_chars: int = 4000
+    max_hypotheses: int = 5
+    max_recommendations: int = 5
+    store_raw_response: bool = False
 
 
 class LLMAnalysisAgent:
@@ -31,6 +50,7 @@ class LLMAnalysisAgent:
     2. Delimita los datos en bloques explícitos para mitigar inyecciones de prompt.
     3. Nunca altera métricas deterministas, estados ni prioridades previas.
     4. Si el LLM falla o está inaccesible, degrada graciosamente preservando los hechos.
+    5. Reduce datos no confiables antes que recortar directivas de seguridad.
     """
 
     def __init__(
@@ -69,7 +89,7 @@ class LLMAnalysisAgent:
 
     def run(self, initial_input: Any = None) -> AgentRunResult:
         """Ejecuta el ciclo de vida del agente sobre la salida de análisis previa."""
-        # Extracción segura de hechos confirmados, prioridad y mensajes de muestra
+        # Extracción y validación estricta de hechos confirmados, prioridad y muestras
         extracted = self._extract_context(initial_input)
         if not extracted["valid"]:
             error_msg = extracted.get("error", "Entrada incompatible para LLMAnalysisAgent.")
@@ -96,13 +116,34 @@ class LLMAnalysisAgent:
         sample_messages: list[str] = extracted["sample_messages"]
         warnings: list[str] = list(extracted.get("warnings", []))
 
-        # Construcción segura del prompt delimitado
-        prompt = self._build_prompt(
-            confirmed_facts=confirmed_facts,
-            triage_priority=triage_priority,
-            sample_messages=sample_messages,
-            warnings=warnings,
-        )
+        # Construcción segura del prompt delimitado con presupuesto protegido
+        try:
+            prompt = self._build_prompt(
+                confirmed_facts=confirmed_facts,
+                triage_priority=triage_priority,
+                sample_messages=sample_messages,
+                warnings=warnings,
+            )
+        except ValueError as err:
+            warnings.append(f"Fallo de presupuesto de prompt: {err}")
+            fallback = LLMAnalysisResult(
+                success=False,
+                provider=self._provider.name,
+                model=getattr(self._provider, "model", "unknown"),
+                triage_priority=triage_priority,
+                confirmed_facts=confirmed_facts,
+                hypotheses=(),
+                recommendations=(),
+                warnings=tuple(warnings),
+                raw_response=None,
+            )
+            return AgentRunResult(
+                agent_id=self.agent_id,
+                success=True,
+                step_results=(),
+                final_output=fallback,
+                errors=tuple(warnings),
+            )
 
         # Invocación protegida al proveedor LLM
         llm_response: LLMResponse | None = None
@@ -140,16 +181,19 @@ class LLMAnalysisAgent:
         # Procesamiento y separación estricta de hipótesis y recomendaciones
         hypotheses, recommendations = self._parse_llm_output(llm_response.content)
 
+        # Almacenamiento condicional de respuesta cruda (por defecto None para privacidad)
+        raw_to_store = llm_response.content if self._config.store_raw_response else None
+
         final_result = LLMAnalysisResult(
             success=True,
             provider=self._provider.name,
             model=llm_response.model,
             triage_priority=triage_priority,
             confirmed_facts=confirmed_facts,
-            hypotheses=hypotheses,
-            recommendations=recommendations,
+            hypotheses=hypotheses[: self._config.max_hypotheses],
+            recommendations=recommendations[: self._config.max_recommendations],
             warnings=tuple(warnings),
-            raw_response=llm_response.content,
+            raw_response=raw_to_store,
         )
 
         return AgentRunResult(
@@ -160,8 +204,27 @@ class LLMAnalysisAgent:
             errors=(),
         )
 
+    def _validate_numeric_fact(self, key: str, val: Any) -> int | float:
+        """Valida rigurosamente que una métrica sea finita, no negativa y de tipo válido."""
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            tname = type(val).__name__
+            raise TypeError(f"Métrica '{key}' debe ser numéricamente válida, se recibió {tname}.")
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError(f"Métrica '{key}' no puede ser NaN ni infinito.")
+
+        if key == "anomalous_percentage":
+            fval = float(val)
+            if not (0.0 <= fval <= 100.0):
+                raise ValueError(f"Porcentaje '{key}' fuera de rango [0.0, 100.0]: {fval}.")
+            return fval
+
+        ival = int(val)
+        if ival < 0:
+            raise ValueError(f"Métrica entera '{key}' no puede ser negativa: {ival}.")
+        return ival
+
     def _extract_context(self, data: Any) -> dict[str, Any]:
-        """Extrae de forma robusta los hechos confirmados desde diversas fuentes estructuradas."""
+        """Extrae y valida exhaustivamente los hechos confirmados desde fuentes estructuradas."""
         if data is None:
             return {"valid": False, "error": "La entrada no puede ser None."}
 
@@ -218,15 +281,23 @@ class LLMAnalysisAgent:
                 "warnings": warnings,
             }
 
-        # Caso 4: Diccionario estructurado
+        # Caso 4: Diccionario estructurado externo
         if isinstance(data, dict):
-            if "facts" in data:
-                confirmed_facts.update(data["facts"])
+            if "facts" in data and isinstance(data["facts"], dict):
+                for k, v in data["facts"].items():
+                    if k not in ALLOWED_CONFIRMED_FACT_KEYS:
+                        continue
+                    try:
+                        confirmed_facts[k] = self._validate_numeric_fact(k, v)
+                    except (ValueError, TypeError) as err:
+                        return {"valid": False, "error": f"Dato no válido en facts: {err}"}
+
             if "priority" in data:
                 try:
                     triage_priority = TriagePriority(data["priority"])
                 except Exception:
                     warnings.append(f"Prioridad desconocida en diccionario: {data['priority']}")
+
             if "samples" in data and isinstance(data["samples"], list):
                 sample_messages.extend(str(s) for s in data["samples"])
 
@@ -251,25 +322,31 @@ class LLMAnalysisAgent:
     ) -> None:
         """Inspecciona objetos IncidentReport o salidas anidadas."""
         if isinstance(output_obj, IncidentReport):
-            confirmed_facts.update(output_obj.facts)
+            for k, v in output_obj.facts.items():
+                if k in ALLOWED_CONFIRMED_FACT_KEYS:
+                    try:
+                        confirmed_facts[k] = self._validate_numeric_fact(k, v)
+                    except Exception:
+                        pass
             confirmed_facts["observations"] = list(output_obj.observations)
             if "samples" in output_obj.metadata and isinstance(
                 output_obj.metadata["samples"], list
             ):
                 sample_messages.extend(str(s) for s in output_obj.metadata["samples"])
         elif hasattr(output_obj, "facts") and isinstance(output_obj.facts, dict):
-            confirmed_facts.update(output_obj.facts)
+            for k, v in output_obj.facts.items():
+                if k in ALLOWED_CONFIRMED_FACT_KEYS:
+                    try:
+                        confirmed_facts[k] = self._validate_numeric_fact(k, v)
+                    except Exception:
+                        pass
 
     def _sanitize_untrusted_text(self, text: str) -> str:
         """Saneamiento para mitigar intentos de inyección y cierre de etiquetas XML."""
-        # Evitar escape del bloque de delimitación
         cleaned = text.replace("</untrusted_log_data>", "[TAG_CERRADA_NEUTRALIZADA]")
         cleaned = cleaned.replace("<untrusted_log_data>", "[TAG_ABIERTA_NEUTRALIZADA]")
-
-        # Filtrar caracteres de control no imprimibles excepto saltos de línea y tabulación
         cleaned = "".join(ch for ch in cleaned if ch == "\n" or ch == "\t" or ch >= " ")
 
-        # Truncar longitud individual de línea
         if len(cleaned) > self._config.max_message_chars:
             cleaned = cleaned[: self._config.max_message_chars] + "...[TRUNCADO]"
 
@@ -282,29 +359,21 @@ class LLMAnalysisAgent:
         sample_messages: list[str],
         warnings: list[str],
     ) -> str:
-        """Construye un prompt delimitado y seguro limitando el tamaño de datos."""
-        # Saneamiento y limitación de muestras
-        sanitized_samples: list[str] = []
-        for msg in sample_messages[: self._config.max_sample_messages]:
-            sanitized_samples.append(self._sanitize_untrusted_text(msg))
+        """Construye un prompt delimitado protegiendo las instrucciones críticas del sistema.
 
-        if len(sample_messages) > self._config.max_sample_messages:
-            omitted = len(sample_messages) - self._config.max_sample_messages
-            sanitized_samples.append(f"...[{omitted} muestras adicionales omitidas por límite]")
-
-        samples_block = (
-            "\n".join(sanitized_samples) if sanitized_samples else "(Sin muestras de eventos)"
-        )
-
+        Si el prompt excede `max_prompt_chars`, se reducen las muestras de datos no confiables
+        en lugar de truncar las directivas de seguridad y la tarea.
+        """
+        # Preparación del bloque de hechos
         prio_label = triage_priority.value if triage_priority else "NO_ASIGNADA"
         facts_lines = [f"- Prioridad asignada por triaje: {prio_label}"]
-        for k, v in confirmed_facts.items():
+        for k, v in sorted(confirmed_facts.items()):
             if k not in ("observations", "triage_reasons"):
                 facts_lines.append(f"- {k}: {v}")
-
         facts_block = "\n".join(facts_lines)
 
-        prompt = f"""[ROL Y POLÍTICA DE SEGURIDAD]
+        def _assemble(samples_text: str) -> str:
+            return f"""[ROL Y POLÍTICA DE SEGURIDAD]
 Eres un asistente especializado en análisis de incidentes de software.
 A continuación se presentan hechos cuantitativos confirmados y muestras de registros.
 REGLAS OBLIGATORIAS:
@@ -317,7 +386,7 @@ REGLAS OBLIGATORIAS:
 {facts_block}
 
 <untrusted_log_data>
-{samples_block}
+{samples_text}
 </untrusted_log_data>
 
 [INSTRUCCIÓN]
@@ -327,14 +396,34 @@ Con base EXCLUSIVAMENTE en la telemetría y los hechos confirmados:
 2. Plantea de 1 a 3 recomendaciones técnicas concretas para el equipo de desarrollo.
    Cada recomendación DEBE iniciar exactamente con: "Recomendación: "
 """
-        # Verificación de límite máximo del prompt
-        if len(prompt) > self._config.max_prompt_chars:
-            warnings.append(
-                f"El prompt excedió {self._config.max_prompt_chars} caracteres y fue truncado."
-            )
-            prompt = prompt[: self._config.max_prompt_chars] + "\n...[PROMPT TRUNCADO]"
 
-        return prompt
+        # Verificar si la plantilla mínima (sin muestras) ya desborda el presupuesto
+        minimal_prompt = _assemble("(Sin muestras de eventos)")
+        if len(minimal_prompt) > self._config.max_prompt_chars:
+            raise ValueError(
+                f"Presupuesto max_prompt_chars ({self._config.max_prompt_chars}) insuficiente "
+                f"para directivas de seguridad obligatorias ({len(minimal_prompt)} caracteres)."
+            )
+
+        # Selección progresiva de muestras para no desbordar el presupuesto
+        sanitized_samples: list[str] = [
+            self._sanitize_untrusted_text(msg)
+            for msg in sample_messages[: self._config.max_sample_messages]
+        ]
+        if len(sample_messages) > self._config.max_sample_messages:
+            omitted = len(sample_messages) - self._config.max_sample_messages
+            sanitized_samples.append(f"...[{omitted} muestras adicionales omitidas por límite]")
+
+        while sanitized_samples:
+            candidate_block = "\n".join(sanitized_samples)
+            candidate_prompt = _assemble(candidate_block)
+            if len(candidate_prompt) <= self._config.max_prompt_chars:
+                return candidate_prompt
+            # Reducir datos no confiables para preservar instrucciones del sistema
+            sanitized_samples.pop()
+            warnings.append("Muestras no confiables recortadas para respetar presupuesto.")
+
+        return minimal_prompt
 
     def _parse_llm_output(self, content: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """Extrae hipótesis y recomendaciones garantizando la etiqueta de no confirmada."""
@@ -347,32 +436,29 @@ Con base EXCLUSIVAMENTE en la telemetría y los hechos confirmados:
             if not line:
                 continue
 
-            # Detección de hipótesis
             match_hyp = re.match(
                 r"^[\*\-•]?\s*(?:Hipótesis|Hipotesis|Hypothesis)\s*:\s*(.+)$",
                 line,
                 re.IGNORECASE,
             )
             if match_hyp:
-                text = match_hyp.group(1).strip()
-                # Prefijo explícito para asegurar transparencia de no confirmación
+                text = match_hyp.group(1).strip()[:300]
                 hypotheses.append(f"[Hipótesis no confirmada] {text}")
                 continue
 
-            # Detección de recomendaciones
             match_rec = re.match(
                 r"^[\*\-•]?\s*(?:Recomendación|Recomendacion|Recommendation)\s*:\s*(.+)$",
                 line,
                 re.IGNORECASE,
             )
             if match_rec:
-                text = match_rec.group(1).strip()
+                text = match_rec.group(1).strip()[:300]
                 recommendations.append(text)
                 continue
 
         # Si el modelo no usó prefijos, procesar el texto como hipótesis no confirmada
         if not hypotheses and not recommendations:
-            cleaned_text = re.sub(r"\s+", " ", content).strip()
+            cleaned_text = re.sub(r"\s+", " ", content).strip()[:400]
             if cleaned_text:
                 hypotheses.append(f"[Hipótesis no confirmada] {cleaned_text}")
                 recommendations.append(

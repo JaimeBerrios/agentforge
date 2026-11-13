@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from agentforge.agents.types import TriagePriority, TriageResult, TriageThresholds
@@ -58,13 +59,40 @@ class IncidentTriageAgent(AgentProtocol):
     def evaluate_triage(self, report: IncidentReport) -> TriageResult:
         """Aplica reglas deterministas cuantitativas para asignar prioridad y recomendaciones."""
         facts = report.facts
-        op_errors = int(facts.get("operational_errors", 0))
-        op_warnings = int(facts.get("operational_warnings", 0))
-        anom_rate = float(facts.get("anomalous_percentage", 0.0))
-        anom_events = int(facts.get("anomalous_events", 0))
-        incomplete = int(facts.get("incomplete_records", 0))
-        malformed = int(facts.get("malformed_records", 0))
-        total_events = int(facts.get("total_events", 0))
+
+        def _get_validated_int(key: str, default: int = 0) -> int:
+            val = facts.get(key, default)
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                tname = type(val).__name__
+                raise TypeError(f"Métrica '{key}' debe ser entera, se recibió {tname}.")
+
+            if math.isnan(val) or math.isinf(val):
+                raise ValueError(f"Métrica '{key}' no puede ser NaN ni infinito.")
+            ival = int(val)
+            if ival < 0:
+                raise ValueError(f"Métrica '{key}' no puede ser negativa: {ival}.")
+            return ival
+
+        def _get_validated_float(key: str, default: float = 0.0) -> float:
+            val = facts.get(key, default)
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                tname = type(val).__name__
+                raise TypeError(f"Métrica '{key}' debe ser numérica, se recibió {tname}.")
+
+            if math.isnan(val) or math.isinf(val):
+                raise ValueError(f"Métrica '{key}' no puede ser NaN ni infinito.")
+            fval = float(val)
+            if not (0.0 <= fval <= 100.0):
+                raise ValueError(f"Tasa porcentual '{key}' fuera de rango [0.0, 100.0]: {fval}.")
+            return fval
+
+        op_errors = _get_validated_int("operational_errors", 0)
+        op_warnings = _get_validated_int("operational_warnings", 0)
+        anom_rate = _get_validated_float("anomalous_percentage", 0.0)
+        anom_events = _get_validated_int("anomalous_events", 0)
+        incomplete = _get_validated_int("incomplete_records", 0)
+        malformed = _get_validated_int("malformed_records", 0)
+        total_events = _get_validated_int("total_events", 0)
 
         reasons: list[str] = []
         recommendations: list[str] = []
