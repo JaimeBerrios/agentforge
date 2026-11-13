@@ -1,0 +1,16 @@
+· [WARNING] Invalid password attempt
+[ERROR] 2024-02-30 Fallo de sincronización con fecha inexistente 30 de febrero
+[WARNING] 2023-02-29 Error de año bisiesto inexistente en 2023
+
+ERROR 2024-05-10 Línea sin corchetes en el nivel de severidad
+(INFO) 2024-05-10 Paréntesis utilizados en vez de corchetes
+[ ERROR  ] 2024-05-10 Espacios irregulares dentro de los corchetes
+[  INFO] 2024-05-10 Espacios iniciales dentro de corchetes
+[WARNING ] 2024-05-10 Espacios finales dentro de corchetes
+
+[INFO]
+[ERROR] 2024-05-10
+[INFO] 2024-05-10 
+[ERROR] 2024-13-01 Mes 13 fuera de rango de calendario
+Esta línea no cumple con ningún formato de log válido
+   

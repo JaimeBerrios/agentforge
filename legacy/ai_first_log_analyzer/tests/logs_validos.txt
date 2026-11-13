@@ -1,0 +1,10 @@
+· [INFO] 2025-01-10 User logged in
+· [ERROR] 2025-01-10 Failed to connect to database
+[INFO] 2024-05-10 Conexión a la base de datos establecida exitosamente
+[INFO] 2024-05-10 Autenticación exitosa para el usuario id=1024
+[WARNING] 2024-05-10 Uso de memoria elevado superando el umbral del 85%
+[ERROR] 2024-05-10 Tiempo de espera agotado al consultar la tabla orders
+[ERROR] 2024-05-10 Fallo en la pasarela de pagos: servicio no disponible
+[INFO] 2024-05-10 Tarea en segundo plano #4421 finalizada con éxito
+[WARNING] 2024-05-10 Límite de tasa de peticiones alcanzado para IP 192.168.1.50
+[INFO] 2024-05-10 Mantenimiento preventivo completado correctamente
