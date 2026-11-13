@@ -1,0 +1,15 @@
+# Configuración mínima de agente en AgentForge
+
+[agent]
+id = "minimal_agent"
+name = "Minimal Agent"
+description = "Agente de prueba con configuración básica."
+skills = [
+    "echo_skill",
+]
+execution_order = [
+    "echo_skill",
+]
+
+[parameters]
+verbose = false

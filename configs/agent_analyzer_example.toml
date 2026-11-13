@@ -1,0 +1,21 @@
+# Configuración de ejemplo para un agente de análisis de logs en AgentForge
+
+[agent]
+id = "log_analyzer_agent"
+name = "Log Analyzer Agent"
+description = "Agente determinista para parsing, validación y métricas de registros de log."
+skills = [
+    "log_parser",
+    "log_validator",
+    "log_metrics",
+]
+execution_order = [
+    "log_parser",
+    "log_validator",
+    "log_metrics",
+]
+
+[parameters]
+max_events = 10000
+strict_mode = true
+date_format = "%Y-%m-%d"
