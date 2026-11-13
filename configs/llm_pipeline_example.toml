@@ -1,0 +1,43 @@
+# Pipeline coordinado con asistencia de LLM local
+
+[pipeline]
+name = "Full Coordinated Pipeline with Local LLM"
+description = "Pipeline que combina análisis determinista, triaje e hipótesis no verificadas con LLM."
+agents = [
+    "log_analysis_agent",
+    "incident_triage_agent",
+    "llm_analysis_agent",
+]
+
+[log_analysis_agent]
+id = "log_analysis_agent"
+skills = [
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
+]
+execution_order = [
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
+]
+
+[incident_triage_agent.thresholds]
+critical_operational_errors = 5
+high_operational_errors = 1
+critical_anomaly_rate = 50.0
+high_anomaly_rate = 20.0
+medium_anomaly_rate = 5.0
+medium_warnings_count = 1
+
+[llm_analysis_agent]
+id = "llm_analysis_agent"
+provider = "ollama"
+max_sample_messages = 5
+max_message_chars = 200
+max_prompt_chars = 4000
+
+[llm_analysis_agent.provider_config]
+host = "http://127.0.0.1:11434"
+model = "qwen2.5-coder:3b"
+timeout = 30.0

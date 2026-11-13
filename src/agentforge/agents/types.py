@@ -77,12 +77,51 @@ class TriageResult:
 
 
 @dataclass(frozen=True, slots=True)
+class LLMAnalysisResult:
+    """Resultado estructurado del análisis asistido por modelo de lenguaje."""
+
+    success: bool
+    provider: str
+    model: str
+    triage_priority: TriagePriority | None
+    confirmed_facts: dict[str, Any]
+    hypotheses: tuple[str, ...]
+    recommendations: tuple[str, ...]
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+    raw_response: str | None = None
+    metadata: dict[str, Any] = field(
+        default_factory=lambda: {
+            "disclaimer": (
+                "Las hipótesis generadas por el modelo de lenguaje son sugerencias no "
+                "verificadas y no sustituyen las métricas ni la validación determinista."
+            ),
+            "nature": "unverified_ai_hypotheses",
+        }
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convierte el resultado del análisis LLM a un diccionario serializable."""
+        return {
+            "success": self.success,
+            "provider": self.provider,
+            "model": self.model,
+            "triage_priority": self.triage_priority.value if self.triage_priority else None,
+            "confirmed_facts": dict(self.confirmed_facts),
+            "hypotheses": list(self.hypotheses),
+            "recommendations": list(self.recommendations),
+            "warnings": list(self.warnings),
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class CoordinatedExecutionResult:
     """Resultado consolidado de la ejecución coordinada entre agentes."""
 
     success: bool
     analysis_result: AgentRunResult
     triage_result: TriageResult | None = None
+    llm_result: LLMAnalysisResult | None = None
     execution_order: tuple[str, ...] = ("log_analysis_agent", "incident_triage_agent")
     errors: tuple[str, ...] = field(default_factory=tuple)
 
@@ -92,6 +131,7 @@ class CoordinatedExecutionResult:
             "success": self.success,
             "analysis_success": self.analysis_result.success,
             "triage_priority": self.triage_result.priority.value if self.triage_result else None,
+            "has_llm_analysis": self.llm_result is not None,
             "execution_order": list(self.execution_order),
             "errors": list(self.errors),
         }
