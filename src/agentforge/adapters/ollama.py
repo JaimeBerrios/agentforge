@@ -18,7 +18,7 @@ from agentforge.adapters.exceptions import (
 )
 from agentforge.core.contracts import LLMResponse
 
-DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 MAX_HTTP_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 Megabytes límite defensivo
 MODEL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:]{1,100}$")
 

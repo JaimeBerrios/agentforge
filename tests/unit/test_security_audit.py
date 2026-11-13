@@ -27,6 +27,22 @@ class TestOllamaSecurityHardening(unittest.TestCase):
             OllamaConfig(host="http://evil-attacker.com:11434")
         self.assertIn("prevención SSRF", str(ctx.exception))
 
+        # 0.0.0.0 no es una dirección loopback de cliente válida y debe ser rechazada por defecto
+        with self.assertRaises(ValueError) as ctx:
+            OllamaConfig(host="http://0.0.0.0:11434")
+        self.assertIn("prevención SSRF", str(ctx.exception))
+
+    def test_hosts_loopback_permitidos_por_defecto(self) -> None:
+        # localhost, 127.0.0.1 y ::1 son aceptados sin error
+        cfg_localhost = OllamaConfig(host="http://localhost:11434")
+        self.assertEqual(cfg_localhost.host, "http://localhost:11434")
+
+        cfg_ipv4 = OllamaConfig(host="http://127.0.0.1:11434")
+        self.assertEqual(cfg_ipv4.host, "http://127.0.0.1:11434")
+
+        cfg_ipv6 = OllamaConfig(host="http://[::1]:11434")
+        self.assertEqual(cfg_ipv6.host, "http://[::1]:11434")
+
     def test_rechazo_de_credenciales_en_url(self) -> None:
         with self.assertRaises(ValueError) as ctx:
             OllamaConfig(host="http://admin:secret@127.0.0.1:11434")
