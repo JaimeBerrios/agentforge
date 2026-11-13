@@ -5,14 +5,14 @@ id = "log_analyzer_agent"
 name = "Log Analyzer Agent"
 description = "Agente determinista para parsing, validación y métricas de registros de log."
 skills = [
-    "log_parser",
-    "log_validator",
-    "log_metrics",
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
 ]
 execution_order = [
-    "log_parser",
-    "log_validator",
-    "log_metrics",
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
 ]
 
 [parameters]
