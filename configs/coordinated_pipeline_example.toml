@@ -1,0 +1,30 @@
+# Configuración del pipeline coordinado entre agentes especializados
+
+[pipeline]
+name = "Log Analysis and Triage Pipeline"
+description = "Orquestación determinista entre LogAnalysisAgent e IncidentTriageAgent."
+agents = [
+    "log_analysis_agent",
+    "incident_triage_agent",
+]
+
+[log_analysis_agent]
+id = "log_analysis_agent"
+skills = [
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
+]
+execution_order = [
+    "log-parser",
+    "anomaly-detector",
+    "incident-reporter",
+]
+
+[incident_triage_agent.thresholds]
+critical_operational_errors = 5
+high_operational_errors = 1
+critical_anomaly_rate = 50.0
+high_anomaly_rate = 20.0
+medium_anomaly_rate = 5.0
+medium_warnings_count = 1

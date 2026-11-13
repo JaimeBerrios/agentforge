@@ -1,0 +1,14 @@
+# Configuración de reglas y umbrales para el agente de triaje en AgentForge
+
+[triage_rules]
+critical_operational_errors = 5
+high_operational_errors = 1
+critical_anomaly_rate = 50.0
+high_anomaly_rate = 20.0
+medium_anomaly_rate = 5.0
+medium_warnings_count = 1
+
+[metadata]
+policy_name = "standard_operational_triage"
+policy_version = "1.0.0"
+disclaimer = "Reglas operativas de triaje cuantitativo sin diagnóstico causal."
